@@ -10,3 +10,8 @@ Boosted_Regression_Tree_Analysis is the folder for the Boosted Regression Tree A
 - Source code contains with Libraries and User-defined functions
 - Data (RLI and covariates)
 - Analysis script
+
+General_data is the folder with the species names, ICUN categories and covariates.
+
+Red List Index and Sankey plot is the folder for the Red List Index over time Analysis. It contains:
+- a script to calculate the Red List Index (as well as bootstrapped uncertainty) and do a Sankey plot
