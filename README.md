@@ -6,12 +6,23 @@ Time-series and trait data are publicly available on https://www.sharkipedia.org
 XXADD description of folder and analysisXX
 
 
-Boosted_Regression_Tree_Analysis is the folder for the Boosted Regression Tree Analysis. It contains:
+
+Boosted_Regression_Tree_Analysis is the folder for the Boosted Regression Tree analysis. It contains:
 - Source code contains with Libraries and User-defined functions
-- Data (RLI and covariates)
+- Data (Red List Index ([RLI] and covariates)
 - Analysis script
 
-General_data is the folder with the species names, IUCN categories and covariates.
+Functional_richness_analysis is the folder for the Simulations of the loss of functional diversity analysis. It contains:
+- a script to perform the functional richness analysis
+- two functions
 
-Red List Index and Sankey plot is the folder for the Red List Index over time Analysis. It contains:
-- a script to calculate the Red List Index (as well as bootstrapped uncertainty) and do a Sankey plot
+General_data is the folder with species names, IUCN categories and covariates.
+
+Global_Chondrichthyan_Catch_and_Effort is the folder for the catch reconstructions and fishing effort analysis. It conatins:
+- a script to perform the analysis
+- a stan model
+- two dataset of global catch and effort
+
+Red_List_Index_and_Sankey_plot is the folder for the Red List Index (RLI) over time analysis. It contains:
+- a script to calculate the RLI (as well as bootstrapped uncertainty) and do a Sankey plot
+- RLI values
