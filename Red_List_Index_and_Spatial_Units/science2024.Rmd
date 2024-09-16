@@ -1,0 +1,305 @@
+---
+title: "science2024"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{science2024}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+remotes::install_github("Marine-Biodiversity-Conservation-Lab/RLIspatial")
+library(RLIspatial)
+library(sf)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(foreach)
+
+sf_use_s2(FALSE)
+```
+
+## hexagons, LME, MEOW and FAO
+```{r areas}
+## Species ranges from IUCN Red List
+fname_ranges <- "../ProcessedData/00_Cleaned_Areas/ranges.rds"
+ranges <- readRDS(fname_ranges)
+
+# PREPARING HEXAGON GRID ------------------
+# hexagon grid cells shapefile 
+hex_import <- st_read("../RawData/03_HexagonTessellation/CylindricalEqualArea_Hexagons.shp")
+st_crs(hex_import) == st_crs(ranges) # I do not understand why the projections are not identical, given that the ranges that are imported were created with the exact CRS
+
+ranges <- ranges %>% st_set_crs(st_crs(hex_import))
+
+# realizing that ORIG_FID is not a unique identifier for each row 
+length(unique(hex_import$ORIG_FID)) == nrow(hex_import)
+
+# create rownames to make sure each row (therefore each hex) has unique value 
+hexagons <- cbind(rownames(hex_import), data.frame(hex_import, row.names = NULL)) %>%
+  mutate(NEW_FID = rownames(hex_import)) %>%
+  st_as_sf %>%
+  select(NEW_FID)
+
+# MEOW (Marine Ecoregions Of the World )
+MEOW <- st_read("../RawData/05_MEOW_PPOW/01_Data/WCMC-036-MEOW-PPOW-2007-2012-NoCoast.shp") %>% st_transform(crs = st_crs(ranges))
+
+MEOW$name_unique <- ifelse(MEOW$TYPE == "PPOW", MEOW$PROVINC, MEOW$ECOREGION)
+
+MEOW[MEOW$name_unique == "Black Sea" & MEOW$TYPE == "PPOW", "name_unique"] <- "Black Sea PPOW"
+MEOW[MEOW$name_unique == "Black Sea" & MEOW$TYPE == "MEOW", "name_unique"] <- "Black Sea MEOW"
+
+length(unique(MEOW$name_unique)) # 269 which is the same as the number of rows, so confirmed this column is unique identifier 
+
+# FAO major fishing areas 
+FAO <- st_read("../RawData/06_FAO/FAO_AREAS_CWP_MAJOR.shp") %>% 
+  st_transform(crs = st_crs(ranges))
+
+# Large Marine Ecosystems
+LME <- st_read("../RawData/08_LME/LMEs66.shp")
+
+# fixing the LME (output LME_valid) 
+LME_validcheck <- LME %>% st_is_valid()
+LME_isna <- which(is.na(LME)) # lots of them are NA geometries 
+which(!LME_validcheck) #  invalid geometries
+LME_isna_geometry <- LME[LME_isna,]
+LME_isna_geometry_at <- LME_isna_geometry %>% st_drop_geometry() # every NA geometry is completely blank, no information 
+LME_isna %>% length()
+LME <- LME[!LME %in% LME_isna,] %>% st_as_sf() # 66 observations, corresponds to number of LMEs 
+LME<- LME %>% st_crop(c(ymin = -89.99, ymax = 89.99, xmin=-179.99, xmax=179.99))
+LME<- LME %>% st_transform(st_crs(hex_import))
+LME<- LME %>% st_make_valid()
+
+# check the LME geometry validity 
+LME_validcheck2 <- LME %>% st_is_valid()
+LME_isna2 <- which(is.na(LME_validcheck2)) # empty, no NA geometries
+which(!LME_validcheck2) #  integer(0), no invalid geometries
+
+EEZ <- st_read("../RawData/07_EEZ/eez_v11.shp") %>% 
+  st_transform(crs = st_crs(ranges))
+
+# clean up environment
+rm(hex_import)
+rm(LME_isna_geometry)
+rm(LME_isna_geometry_at)
+rm(LME_isna)
+rm(LME_isna2)
+rm(LME_validcheck)
+rm(LME_validcheck2)
+```
+
+```{r}
+# TODO: update presence_matrix to actually output a matrix
+species_hex_df <- presence_matrix(input_ranges = ranges,
+                                        areas = hexagons,
+                                        species_name_col = "BINOMIA")
+
+# Modify M. californica into M. californicatus to match Habitat/grpA spreadsheets | even if californica is the right one
+colnames(species_hex_df)[colnames(species_hex_df) == "Myliobatis californica"] <- "Myliobatis californicus"
+
+species_hex_matrix <- species_hex_df %>%
+  tibble::column_to_rownames("area_int") %>%
+  as.matrix()
+
+species_hex_range_sizes <- range_size_function(species_hex_df)
+```
+## Unweighted RLI for hex cells 
+```{r}
+RLI_hex_unweighted <- RLI_grid(RLI_type = 'classic',
+                               sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                               sp_pres_matrix = species_hex_matrix) %>%
+  rownames_to_column(var = "NEW_FID") %>%
+  relocate(NEW_FID,
+           RLI_1970 = RL_cat_1970,
+           RLI_1980 = RL_cat_1980,
+           RLI_2005 = RL_cat_2005,
+           RLI_2020 = RL_cat_2020
+  )
+```
+
+## Weighted RLI for hex cells
+```{r}
+# Creating weight matrix for weighted RLI over hex cells
+species_range_weights <- species_hex_range_sizes %>%
+  dplyr::select(Genus_species, range_prop) %>%
+  t()
+colnames(species_range_weights) <- species_range_weights[1,]
+species_range_weights <- species_range_weights[2,] %>% as.numeric()
+sp_weight_matrix <- sweep(species_hex_matrix, MARGIN = 2, species_range_weights, `*`)
+
+# Generating RLI values for hex cells weighted by range size
+RLI_hex_weighted <- RLI_grid(RLI_type = "weighted",
+                             sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                             sp_pres_matrix = species_hex_matrix,
+                             sp_range_weights = sp_weight_matrix) %>%
+  rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```
+
+## Scaled RLI for hex cells 
+```{r}
+max_cell <- species_hex_range_sizes$range_in_hex_cells %>% max()
+species_hex_range_scaled <- species_hex_range_sizes %>%
+  mutate(species_scaled = ((range_in_hex_cells - (max_cell+1))/(1-(max_cell+1)))) %>%
+  t()
+colnames(species_hex_range_scaled) <- species_hex_range_scaled[1,]
+species_range_weights_scaled <- species_hex_range_scaled["species_scaled",] %>%
+  as.numeric()
+
+sp_weight_matrix <- sweep(species_hex_matrix, MARGIN = 2, species_range_weights_scaled, `*`)
+
+RLI_hex_scaled <- RLI_grid(RLI_type = "weighted",
+                           sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                           sp_pres_matrix = species_hex_matrix,
+                           sp_range_weights = sp_weight_matrix) %>%
+  rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```
+
+## Weighted RLI for FAO 
+```{r}
+# Create weights by area
+sp_prop_range <- prop_range_area_function(ranges, FAO)
+sp_prop_range <- sp_prop_range %>%
+  dplyr::select(BINOMIA, prop_range, F_CODE) %>%
+  tidyr::pivot_wider(names_from = "BINOMIA",
+                     values_from = "prop_range",
+                     values_fill = 0) %>%
+  tibble::column_to_rownames(var = "F_CODE") %>%
+  as.matrix()
+# Order rows to make sure right elements from each matrix are taken for function
+sp_prop_range_ordered <- sp_prop_range[, order(colnames(sp_prop_range))]
+sp_range_weights <- sp_prop_range_ordered
+
+# Create species presence matrix from weights
+sp_pres_matrix <- sp_range_weights
+sp_pres_matrix[sp_pres_matrix > 0] = 1
+
+weighted_FAO <- RLI_grid(RLI_type = "weighted",
+                sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                sp_pres_matrix = sp_pres_matrix,
+                sp_range_weights = sp_range_weights) %>%
+  tibble::rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```
+
+## Weighted RLI for LME 
+```{r}
+# Create weights by area
+sp_prop_range <- prop_range_area_function(ranges, LME)
+sp_prop_range <- sp_prop_range %>%
+  dplyr::select(BINOMIA, prop_range, LME_NUMBER) %>%
+  tidyr::pivot_wider(names_from = "BINOMIA",
+                     values_from = "prop_range",
+                     values_fill = 0) %>%
+  tibble::column_to_rownames(var = "LME_NUMBER") %>%
+  as.matrix()
+# Order rows to make sure right elements from each matrix are taken for function
+sp_prop_range_ordered <- sp_prop_range[, order(colnames(sp_prop_range))]
+sp_range_weights <- sp_prop_range_ordered
+
+# Create species presence matrix from weights
+sp_pres_matrix <- sp_range_weights
+sp_pres_matrix[sp_pres_matrix > 0] = 1
+
+weighted_LME <- RLI_grid(RLI_type = "weighted",
+                sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                sp_pres_matrix = sp_pres_matrix,
+                sp_range_weights = sp_range_weights) %>%
+  tibble::rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```
+
+## Weighted RLI for MEOW 
+```{r}
+# Create weights by area
+sp_prop_range <- prop_range_area_function(ranges, MEOW)
+sp_prop_range <- sp_prop_range %>%
+  dplyr::select(BINOMIA, prop_range, name_unique) %>%
+  tidyr::pivot_wider(names_from = "BINOMIA",
+                     values_from = "prop_range",
+                     values_fill = 0) %>%
+  tibble::column_to_rownames(var = "name_unique") %>%
+  as.matrix()
+# Order rows to make sure right elements from each matrix are taken for function
+sp_prop_range_ordered <- sp_prop_range[, order(colnames(sp_prop_range))]
+sp_range_weights <- sp_prop_range_ordered
+
+# Create species presence matrix from weights
+sp_pres_matrix <- sp_range_weights
+sp_pres_matrix[sp_pres_matrix > 0] = 1
+
+weighted_MEOW <- RLI_grid(RLI_type = "weighted",
+                sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                sp_pres_matrix = sp_pres_matrix,
+                sp_range_weights = sp_range_weights) %>%
+  tibble::rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```
+
+## Weighted RLI for EEZ 
+```{r}
+EEZ <- EEZ %>% st_make_valid()
+
+# Create weights by area
+sp_prop_range <- prop_range_area_function(ranges, EEZ)
+sp_prop_range <- sp_prop_range %>%
+  dplyr::select(BINOMIA, prop_range, MRGID) %>%
+  tidyr::pivot_wider(names_from = "BINOMIA",
+                     values_from = "prop_range",
+                     values_fill = 0) %>%
+  tibble::column_to_rownames(var = "MRGID") %>%
+  as.matrix()
+# Order rows to make sure right elements from each matrix are taken for function
+sp_prop_range_ordered <- sp_prop_range[, order(colnames(sp_prop_range))]
+sp_range_weights <- sp_prop_range_ordered
+
+# Create species presence matrix from weights
+sp_pres_matrix <- sp_range_weights
+sp_pres_matrix[sp_pres_matrix > 0] = 1
+
+weighted_EEZ <- RLI_grid(RLI_type = "weighted",
+                sp_IUCN_status = RLIspatial::Sp_IUCN_status,
+                sp_pres_matrix = sp_pres_matrix,
+                sp_range_weights = sp_range_weights) %>%
+  tibble::rownames_to_column(var = "NEW_FID") %>%
+  dplyr::relocate(NEW_FID,
+                  RLI_1970 = RL_cat_1970,
+                  RLI_1980 = RL_cat_1980,
+                  RLI_2005 = RL_cat_2005,
+                  RLI_2020 = RL_cat_2020
+  )
+```

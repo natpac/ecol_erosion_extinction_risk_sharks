@@ -26,3 +26,8 @@ Global_Chondrichthyan_Catch_and_Effort is the folder for the catch reconstructio
 Red_List_Index_and_Sankey_plot is the folder for the Red List Index (RLI) over time analysis. It contains:
 - a script to calculate the RLI (as well as bootstrapped uncertainty) and do a Sankey plot
 - RLI values
+
+Red_List_Index_and_Spatial_Units is the folder for the Red List Index (RLI) over spatial units analysis. It contains:
+- .Rmd script to calculate the RLI values by spatial units (equal area hex grid, EEZ, LME, MEOW, FAO)
+- .csv files containing the output RLI values 
+- Note: script uses package hosted at https://github.com/Marine-Biodiversity-Conservation-Lab/RLIspatial.git for calculating RLI. 
