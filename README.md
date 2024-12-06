@@ -1,8 +1,8 @@
 Ecological erosion and expanding extinction risk of sharks and rays
 In this repository, you will find the R codes to support the analyses in the publication.
 Cite this article as Dulvy and Pacoureau, et al. 2024.
-Dulvy NK*, Pacoureau N*, Matsushiba JH, Yan HF, VanderWright WJ, Rigby CL, Finucci B, Sherman CS, Jabado RW, Carlson JK, Pollom RA, Charvet P, Pollock CM, Hilton-Taylor C and Simpfendorfer CA. (2024)  Science 386, eadn1477. DOI: 10.1126/science.adn1477
-* These authors contributed equally to this work.
+Dulvy NK+, Pacoureau N+, Matsushiba JH, Yan HF, VanderWright WJ, Rigby CL, Finucci B, Sherman CS, Jabado RW, Carlson JK, Pollom RA, Charvet P, Pollock CM, Hilton-Taylor C and Simpfendorfer CA. (2024)  Science 386, eadn1477. DOI: 10.1126/science.adn1477
++ These authors contributed equally to this work.
 
  READ THE FULL ARTICLE AT https://www.science.org/doi/10.1126/science.adn1477
 
